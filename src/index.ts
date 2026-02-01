@@ -9,6 +9,7 @@ import api from './api';
 import config, { getActiveBin, setActiveBin } from './config';
 import pc from 'picocolors';
 import readline from 'readline';
+import os from 'os';
 
 process.on('unhandledRejection', (reason) => {
   // Enquirer throws an empty string/nothing when interrupted with Ctrl+C
@@ -29,6 +30,20 @@ const requireBin = (binId?: string) => {
 };
 
 const formatShortId = (id: string) => `rq_${id.substring(0, 6)}`;
+
+async function checkUsage() {
+  try {
+    const usage = await api.getUsage();
+    if (usage && usage.count >= usage.limit) {
+      console.log(`\n${pc.yellow('⚠️ ')} ${pc.bold('You hit your monthly limit.')} (${pc.yellow(usage.count)}/${pc.dim(usage.limit)})`);
+      console.log(`  Upgrade now: ${pc.cyan('curlme upgrade')}\n`);
+      return true;
+    }
+  } catch (e) {
+    // Ignore usage check errors
+  }
+  return false;
+}
 
 const formatRequest = (r: any) => {
   const displayId = formatShortId(r.id);
@@ -59,6 +74,20 @@ const program = new Command();
 
 const DIVIDER = pc.dim('────────────────────────────────────────');
 
+const showFeedbackSuggestion = (isError = false) => {
+  if (isError) {
+    console.log(`\n${pc.dim('If this feels wrong, let us know:')}`);
+    console.log(`  ${pc.cyan('curlme feedback')}\n`);
+  } else {
+    const hasSeen = config.get('hasSeenFeedbackPrompt');
+    if (!hasSeen) {
+      console.log(`\n${pc.bold('Thanks for using curlme.')}`);
+      console.log(`Have feedback? ${pc.cyan('curlme feedback')}\n`);
+      config.set('hasSeenFeedbackPrompt', true);
+    }
+  }
+};
+
 program
   .name('curlme')
   .description('Terminal-first request debugging')
@@ -86,7 +115,9 @@ ${pc.bold('COMMANDS')}
   ${pc.yellow('show <id>')}       Inspect a specific request
   ${pc.yellow('replay <id>')}     Replay a request locally
   ${pc.yellow('diff <a1> <a2>')}  Compare two requests
-  ${pc.yellow('upgrade')}         Get more requests and longer history
+  ${pc.yellow('upgrade')}         Upgrade to Pro for more power
+  ${pc.yellow('billing')}         Manage your subscription
+  ${pc.yellow('feedback')}        Send feedback or report a bug
 
 ${pc.bold('BINS')}
   ${pc.yellow('bin create')}      Create a new bin
@@ -128,6 +159,7 @@ auth
         } catch (error: any) {
           spinner.fail(pc.red(`Not authenticated`));
           console.log(`\nRun: ${pc.cyan('curlme auth login')}\n`);
+          showFeedbackSuggestion(true);
           config.delete('apiKey');
         }
       }
@@ -142,7 +174,9 @@ auth
   .action(async () => {
     try {
       const user = await api.getWhoAmI();
-      console.log(`\n${pc.yellow('✔')} Logged in as ${pc.yellow(user.name)} ${pc.dim(`(${user.email})`)}\n`);
+      const planColor = user.plan === 'FREE' ? pc.dim : pc.yellow;
+      console.log(`\n${pc.yellow('✔')} Logged in as ${pc.yellow(user.name)} ${pc.dim(`(${user.email})`)}`);
+      console.log(`  ${pc.bold('Plan')}        ${planColor(user.plan || 'FREE')}\n`);
     } catch (error: any) {
       console.error(pc.red('\n✖ Not authenticated'));
       console.log(`Run: ${pc.cyan('curlme auth login')}\n`);
@@ -163,9 +197,51 @@ program
   .action(async () => {
     const open = require('open');
     const url = `${api.getBaseUrl()}/pricing`;
-    console.log(`\n${pc.yellow('➜')} Opening ${pc.bold(url)}\n`);
+    console.log(`\n${pc.yellow('➜')} Opening ${pc.bold(url)}`);
+    console.log(`${pc.dim('You’ll be redirected to Stripe to complete your payment securely.')}\n`);
     await open(url);
     console.log(`${pc.dim('Save hundreds of hours manual debugging with Pro.')}\n`);
+  });
+
+program
+  .command('billing')
+  .description('Manage your subscription and billing details')
+  .action(async () => {
+    const open = require('open');
+    const url = `${api.getBaseUrl()}/account?tab=plan`;
+    console.log(`\n${pc.yellow('➜')} Opening ${pc.bold(url)}`);
+    console.log(`${pc.dim('You’ll be redirected to the billing portal to manage your plan.')}\n`);
+    await open(url);
+  });
+
+program
+  .command('feedback')
+  .description('Provide feedback or report an issue')
+  .action(async () => {
+    const open = require('open');
+    const version = '1.0.0'; // Should ideally pull from package.json
+    const platform = os.platform();
+    const release = os.release();
+    
+    const body = `
+### What happened?
+[Describe the issue or feedback here]
+
+### CLI Version:
+${version}
+
+### OS:
+${platform} ${release}
+`;
+
+    const url = `https://github.com/curlme-io/curlme/issues/new?body=${encodeURIComponent(body)}`;
+    
+    console.log(`\n${pc.yellow('➜')} Opening feedback page…\n`);
+    console.log(`If this is a bug, please include:`);
+    console.log(`- What you were trying to do`);
+    console.log(`- What happened instead\n`);
+    
+    await open(url);
   });
 
 // --- BIN GROUP ---
@@ -249,6 +325,7 @@ bin
   .command('create [name]')
   .description('Create a new bin')
   .action(async (name) => {
+    await checkUsage();
     const binName = name || `bin-${Math.random().toString(36).substring(2, 8)}`;
     const spinner = ora(pc.dim('Creating…')).start();
     try {
@@ -260,8 +337,10 @@ bin
       console.log(`  ${pc.bold('ID')}        ${pc.yellow(b.publicId)}`);
       console.log(`  ${pc.bold('Hook')}      ${pc.dim(api.getBaseUrl() + '/h/')}${pc.yellow(b.publicId)}`);
       console.log(`  ${pc.bold('Inspect')}   ${pc.cyan('curlme listen')}\n`);
+      showFeedbackSuggestion();
     } catch (error: any) {
       spinner.fail(pc.red(`Failed to create bin: ${error.message}`));
+      showFeedbackSuggestion(true);
     }
   });
 
@@ -323,6 +402,7 @@ program
   .description('Listen for incoming requests in real-time')
   .option('--method <method>', 'Filter by HTTP method')
   .action(async (binId, options) => {
+    await checkUsage();
     const id = binId || getActiveBin();
     if (!id) {
       console.error(pc.red('\n✖ No bin specified and no active bin set.'));
@@ -333,6 +413,7 @@ program
 
     console.log(`\n${pc.yellow('→')} Listening on ${pc.bold(id)} ${pc.dim('(active)')}`);
     console.log(`  ${pc.dim('Waiting for requests…')}\n`);
+    showFeedbackSuggestion();
 
     let lastTimestamp = Date.now();
     let requestsCache: any[] = [];

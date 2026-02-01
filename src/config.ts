@@ -4,6 +4,7 @@ interface Config {
   apiKey?: string;
   baseUrl: string;
   activeBinId?: string;
+  hasSeenFeedbackPrompt?: boolean;
 }
 
 const config = new Conf<Config>({
