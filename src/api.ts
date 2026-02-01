@@ -62,6 +62,15 @@ class Api {
     return res.data;
   }
 
+  async getUsage() {
+    try {
+      const res = await this.client.get('/api/user/usage');
+      return res.data;
+    } catch {
+      return null;
+    }
+  }
+
   async getBin(binId: string) {
     const res = await this.client.get(`/api/bins/${binId}`);
     return res.data;

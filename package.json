@@ -1,6 +1,6 @@
 {
   "name": "@curlme/cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Terminal-first CLI for curlme.io",
   "main": "dist/index.js",
   "bin": {

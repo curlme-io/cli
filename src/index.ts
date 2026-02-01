@@ -86,6 +86,7 @@ ${pc.bold('COMMANDS')}
   ${pc.yellow('show <id>')}       Inspect a specific request
   ${pc.yellow('replay <id>')}     Replay a request locally
   ${pc.yellow('diff <a1> <a2>')}  Compare two requests
+  ${pc.yellow('upgrade')}         Get more requests and longer history
 
 ${pc.bold('BINS')}
   ${pc.yellow('bin create')}      Create a new bin
@@ -154,6 +155,17 @@ auth
   .action(() => {
     config.delete('apiKey');
     console.log(pc.green('✔ Logged out successfully.'));
+  });
+
+program
+  .command('upgrade')
+  .description('Upgrade your account for more requests and features')
+  .action(async () => {
+    const open = require('open');
+    const url = `${api.getBaseUrl()}/pricing`;
+    console.log(`\n${pc.yellow('➜')} Opening ${pc.bold(url)}\n`);
+    await open(url);
+    console.log(`${pc.dim('Save hundreds of hours manual debugging with Pro.')}\n`);
   });
 
 // --- BIN GROUP ---
@@ -462,6 +474,16 @@ program
         return;
       }
 
+      // Plan check for history replay
+      const usage = await api.getUsage();
+      const isLatest = reqs[0]?.id === r.id;
+      if (usage?.plan === 'FREE' && !isLatest) {
+        console.log(`\n${pc.yellow('⚠')} ${pc.bold('This action requires request history.')}`);
+        console.log(`${pc.dim('Upgrade to Pro to replay any request and save hours of re-triggering webhooks.')}`);
+        console.log(`${pc.yellow('→')} Run: ${pc.bold('curlme upgrade')}\n`);
+        return;
+      }
+
       const axios = require('axios');
       const targetUrl = new URL(r.path, options.to).toString();
       const replayedSpinner = ora(pc.dim(`Replaying ${pc.bold(r.method)} to ${targetUrl}...`)).start();
@@ -518,6 +540,18 @@ program
 
       if (!r1 || !r2) {
         console.log(pc.red('\n✖ One or both requests not found.'));
+        return;
+      }
+
+      // Plan check for diff history
+      const usage = await api.getUsage();
+      const isR1InLatestTwo = reqs.slice(0, 2).some((x: any) => x.id === r1.id);
+      const isR2InLatestTwo = reqs.slice(0, 2).some((x: any) => x.id === r2.id);
+
+      if (usage?.plan === 'FREE' && (!isR1InLatestTwo || !isR2InLatestTwo)) {
+        console.log(`\n${pc.yellow('⚠')} ${pc.bold('Diff limited to last 2 requests.')}`);
+        console.log(`${pc.dim('Upgrade to Pro for full history comparison and stop hunting for differences manually.')}`);
+        console.log(`${pc.yellow('→')} Run: ${pc.bold('curlme upgrade')}\n`);
         return;
       }
 
